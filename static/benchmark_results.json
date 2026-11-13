@@ -1,0 +1,81 @@
+{
+ "dim": 768,
+ "rows": [
+  {
+   "n": 1000,
+   "mb": 3.1,
+   "cpu_numpy": 0.02470856998115778,
+   "cpu_python": 154.8632918857038,
+   "gpu_fp16": 0.22122904192656279,
+   "gpu_simd": 0.20170840434730053,
+   "gpu_naive": 0.24749990552663803,
+   "mlx_matmul": 0.23585406597703695,
+   "simd_gbps": 15.2,
+   "fp16_gbps": 6.9
+  },
+  {
+   "n": 10000,
+   "mb": 30.7,
+   "cpu_numpy": 1.1844580294564366,
+   "cpu_python": 1068.6192919965833,
+   "gpu_fp16": 0.43229199945926666,
+   "gpu_simd": 0.584729015827179,
+   "gpu_naive": 0.726354424841702,
+   "mlx_matmul": 0.5689789541065693,
+   "simd_gbps": 52.5,
+   "fp16_gbps": 35.5
+  },
+  {
+   "n": 50000,
+   "mb": 153.6,
+   "cpu_numpy": 3.2564380671828985,
+   "cpu_python": null,
+   "gpu_fp16": 1.145666465163231,
+   "gpu_simd": 1.9254584331065416,
+   "gpu_naive": 1.9389999797567725,
+   "mlx_matmul": 1.9633539486676455,
+   "simd_gbps": 79.8,
+   "fp16_gbps": 67.0
+  },
+  {
+   "n": 100000,
+   "mb": 307.2,
+   "cpu_numpy": 5.962811992503703,
+   "cpu_python": null,
+   "gpu_fp16": 2.0163545850664377,
+   "gpu_simd": 3.9966460317373276,
+   "gpu_naive": 3.713625483214855,
+   "mlx_matmul": 3.6609164671972394,
+   "simd_gbps": 76.9,
+   "fp16_gbps": 76.2
+  },
+  {
+   "n": 150000,
+   "mb": 460.8,
+   "cpu_numpy": 10.829416452907026,
+   "cpu_python": null,
+   "gpu_fp16": 2.9656460974365473,
+   "gpu_simd": 5.428812000900507,
+   "gpu_naive": 5.631228908896446,
+   "mlx_matmul": 6.116228993050754,
+   "simd_gbps": 84.9,
+   "fp16_gbps": 77.7
+  }
+ ],
+ "batched": {
+  "n": 150000,
+  "batch": 64,
+  "cpu_numpy": 40.27091711759567,
+  "mlx_matmul": 8.364625042304397
+ },
+ "labels": {
+  "cpu_python": "CPU \u00b7 pure Python",
+  "cpu_numpy": "CPU \u00b7 NumPy (Accelerate BLAS)",
+  "gpu_naive": "GPU \u00b7 our kernel v1 (naive)",
+  "gpu_simd": "GPU \u00b7 our kernel v2 (SIMD + float4)",
+  "gpu_fp16": "GPU \u00b7 our kernel v3 (SIMD + fp16)",
+  "mlx_matmul": "GPU \u00b7 Apple MLX matmul (reference)"
+ },
+ "device": "Device(gpu, 0)",
+ "recorded": "2026-11-13"
+}
