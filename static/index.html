@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaperLens</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><circle cx="13" cy="13" r="9" fill="none" stroke="currentColor" stroke-width="3"/><path d="M20 20l8 8" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/><path d="M9 11h8M9 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <div><h1>PaperLens</h1><p>GPU-accelerated private research assistant</p></div>
+  </div>
+  <nav id="tabs">
+    <button data-tab="ask" class="on">Ask</button>
+    <button data-tab="library">Library</button>
+    <button data-tab="bench">GPU Benchmark</button>
+    <button data-tab="how">How it works</button>
+  </nav>
+  <div class="pills" id="statusPills"></div>
+</header>
+
+<main>
+<!-- ============================ ASK ============================ -->
+<section id="ask" class="tab on">
+  <form id="askForm" class="askbar">
+    <input id="question" autocomplete="off" placeholder="Ask anything about your papers… e.g. “What method did the authors use?”">
+    <button type="submit" id="askBtn">Ask</button>
+  </form>
+  <div class="opts">
+    <label>Search engine
+      <select id="method"></select>
+    </label>
+    <label>Passages <input id="k" type="range" min="1" max="10" value="5"><b id="kval">5</b></label>
+    <label class="chk"><input type="checkbox" id="compare"> Also ask a plain chatbot (no papers)</label>
+    <div class="scale">
+      <span title="Adds synthetic background chunks so the GPU works at search-engine scale. They never appear in answers.">Scale test</span>
+      <div class="seg" id="scaleSeg">
+        <button data-n="0" class="on">My papers only</button>
+        <button data-n="50000">+50k chunks</button>
+        <button data-n="150000">+150k chunks</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pipeline" class="pipeline hidden">
+    <div class="stage"><span>1 · Embed question</span><b id="tEmbed">–</b><small>nomic-embed · GPU</small></div>
+    <div class="arrow">→</div>
+    <div class="stage hot"><span>2 · Search <i id="tN"></i></span><b id="tSearch">–</b><small id="tCpu">–</small></div>
+    <div class="arrow">→</div>
+    <div class="stage"><span>3 · Generate answer</span><b id="tGen">–</b><small id="tTok">qwen2.5 · GPU</small></div>
+  </div>
+
+  <div id="answers" class="answers">
+    <article class="card answer" id="ragCard">
+      <header><span class="tag good">PaperLens · grounded in your papers</span></header>
+      <div class="body" id="ragAnswer"><div class="empty">
+        <h2>Ask your papers a question</h2>
+        <p>Upload PDFs in <a href="#" data-goto="library">Library</a>, then ask. Every claim is cited with the paper and page, and nothing leaves this laptop.</p>
+      </div></div>
+    </article>
+    <article class="card answer hidden" id="plainCard">
+      <header><span class="tag warn">Plain chatbot · no access to your papers</span></header>
+      <div class="body" id="plainAnswer"></div>
+    </article>
+  </div>
+
+  <h3 id="srcTitle" class="hidden">Retrieved passages <small>(found by the GPU kernel, ranked by cosine similarity)</small></h3>
+  <div id="sources" class="sources"></div>
+</section>
+
+<!-- ============================ LIBRARY ============================ -->
+<section id="library" class="tab">
+  <label id="drop" class="drop">
+    <input type="file" id="file" accept="application/pdf" multiple hidden>
+    <svg viewBox="0 0 24 24" width="36" height="36"><path d="M12 16V4m0 0l-5 5m5-5l5 5M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <b>Drop PDFs here or click to choose</b>
+    <span>Each paper is split into ~180-word chunks, turned into 768-number vectors on the GPU, and stored locally.</span>
+  </label>
+  <div id="uploadLog" class="log"></div>
+  <h3>Your papers <small id="libSummary"></small></h3>
+  <div id="docList" class="doclist"></div>
+</section>
+
+<!-- ============================ BENCHMARK ============================ -->
+<section id="bench" class="tab">
+  <div class="benchhead">
+    <div>
+      <h2>CPU vs GPU: similarity search</h2>
+      <p>Time to score one question against <b>N</b> document vectors (768 dims) and pick the top results. Median of 20 runs. Every GPU kernel is checked against NumPy for identical top-10 results before it's timed.</p>
+    </div>
+    <button id="runBench">Run benchmark live</button>
+  </div>
+  <div id="benchNote" class="note"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="card chartcard"><div id="chart"></div><div id="legend" class="legend"></div></div>
+  <div class="card"><div id="benchTable"></div></div>
+  <div class="card insight">
+    <h3>What the numbers teach</h3>
+    <ol>
+      <li><b>Small inputs: the CPU wins.</b> Launching GPU work has a fixed cost (~0.2 ms). With only a few hundred chunks, that overhead is bigger than the work itself.</li>
+      <li><b>Large inputs: the GPU wins.</b> Once there's enough work to fill thousands of GPU threads, the fixed cost disappears into the total.</li>
+      <li><b>This search is memory-bound.</b> Each number is used once (1 multiply + 1 add per 4 bytes read), so speed is limited by how fast memory can be read, not by maths. Our v2 kernel already reads at ~80 GB/s, close to the M2's ~100 GB/s peak.</li>
+      <li><b>So the best optimisation was to read fewer bytes.</b> Kernel v3 stores vectors as 16-bit floats, halving the data read. It ends up about 2× faster than v2, and faster than Apple's general-purpose library, with the same top-10 results.</li>
+      <li><b>Batching makes it compute-bound.</b> 64 questions at once reuse each document vector 64 times, so the GPU's maths units finally get busy (see the batched result).</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================ HOW IT WORKS ============================ -->
+<section id="how" class="tab">
+  <div class="how">
+    <div class="card">
+      <h2>1 · The pipeline (RAG = Retrieval-Augmented Generation)</h2>
+      <div class="flow">
+        <div class="node"><b>PDF</b><small>pypdf extracts text page by page</small></div>
+        <div class="fa">→</div>
+        <div class="node"><b>Chunks</b><small>~180 words, 40-word overlap, remembers page</small></div>
+        <div class="fa">→</div>
+        <div class="node"><b>Embeddings</b><small>nomic-embed-text → 768 numbers per chunk</small></div>
+        <div class="fa">→</div>
+        <div class="node"><b>Vector index</b><small>N × 768 matrix in GPU memory</small></div>
+      </div>
+      <div class="flow">
+        <div class="node"><b>Question</b><small>embedded the same way</small></div>
+        <div class="fa">→</div>
+        <div class="node hot"><b>GPU search ★</b><small>our Metal kernel scores all N chunks in parallel</small></div>
+        <div class="fa">→</div>
+        <div class="node"><b>Top-k passages</b><small>best 5 by cosine similarity</small></div>
+        <div class="fa">→</div>
+        <div class="node"><b>Local LLM</b><small>qwen2.5-3B writes answer + citations</small></div>
+      </div>
+      <p class="muted">★ = the part we wrote from scratch as GPU code. Everything runs on this laptop's Apple M2 GPU, with no internet and no data leaving the machine.</p>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>2 · Why a GPU?</h2>
+        <div class="cores">
+          <div><h4>CPU · 8 cores</h4><div class="cpu"></div><p>A few powerful cores, built to finish one task quickly. Good at branching, sequential logic.</p></div>
+          <div><h4>GPU · 1,024 ALUs (M2, 8 cores × 128)</h4><div class="gpu"></div><p>Many simple lanes that run the <i>same instruction</i> on different data (SIMD). Good for work that splits into thousands of independent pieces.</p></div>
+        </div>
+        <p>Scoring a chunk = <code>dot(chunk, question)</code> = 768 multiply-adds. The scores don't depend on each other, so every chunk can be scored at the same time. This kind of problem is called <b>“embarrassingly parallel”</b>.</p>
+      </div>
+      <div class="card">
+        <h2>3 · Similarity = dot product</h2>
+        <p>Text with similar meaning gets vectors pointing in a similar direction. With all vectors scaled to length 1:</p>
+        <div class="formula">score(chunk, q) = Σ<sub>d=1..768</sub> chunk[d] × q[d] = cos θ</div>
+        <p>1.0 = same meaning · 0 = unrelated. For N chunks that's N × 768 multiply-adds per question, e.g. <b>115 million</b> for 150k chunks.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4 · Three kernels, each faster than the last</h2>
+      <div class="grid3">
+        <div class="kern">
+          <h4>v1 · Naive</h4>
+          <p>1 thread = 1 chunk. Each thread loops over all 768 numbers by itself.</p>
+          <div class="mem" id="memNaive"></div>
+          <p class="muted">Neighbouring threads read addresses 3 KB apart, so the reads can't be merged (<b>uncoalesced</b>).</p>
+        </div>
+        <div class="kern">
+          <h4>v2 · SIMD-group + float4</h4>
+          <p>32 threads (one SIMD-group, like a CUDA “warp”) share 1 chunk. Lane <i>i</i> reads float4 #<i>i</i>, then #<i>i</i>+32…</p>
+          <div class="mem" id="memSimd"></div>
+          <p class="muted">Neighbouring lanes read neighbouring memory (<b>coalesced</b>), 16 bytes per load. <code>simd_sum()</code> adds the 32 partial results in hardware.</p>
+        </div>
+        <div class="kern">
+          <h4>v3 · + half precision</h4>
+          <p>Same as v2, but vectors are stored as 16-bit <code>half</code>s. Maths is still done in 32-bit.</p>
+          <div class="mem" id="memHalf"></div>
+          <p class="muted">The kernel was <b>memory-bound</b>, so halving the bytes read nearly halved the time. Top-10 results are unchanged.</p>
+        </div>
+      </div>
+      <details><summary>Show kernel v2 source (Metal Shading Language)</summary>
+<pre><code>uint N    = docs_shape[0];
+uint lane = thread_index_in_simdgroup;               // 0..31
+uint row  = threadgroup_position_in_grid.x * ROWS_PER_TG
+          + simdgroup_index_in_threadgroup;          // which chunk
+if (row >= N) return;
+
+const device float4* doc4 = (const device float4*)(docs + row * D);
+const device float4* q4   = (const device float4*)(query);
+
+float acc = 0.0f;
+for (uint i = lane; i &lt; D / 4; i += 32)            // 192 float4s → 6 per lane
+    acc += dot(doc4[i], q4[i]);                      // 4 multiply-adds at once
+acc = simd_sum(acc);                                 // add 32 lanes in hardware
+if (lane == 0) scores[row] = acc;</code></pre>
+      </details>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>5 · GPU vocabulary (Apple ↔ NVIDIA)</h2>
+        <table class="vocab">
+          <tr><th>Apple Metal</th><th>NVIDIA CUDA</th><th>Meaning</th></tr>
+          <tr><td>thread</td><td>thread</td><td>one lane of work</td></tr>
+          <tr><td>SIMD-group (32)</td><td>warp (32)</td><td>threads that run in lock-step</td></tr>
+          <tr><td>threadgroup</td><td>block</td><td>group that shares fast memory</td></tr>
+          <tr><td>grid</td><td>grid</td><td>all threads of one launch</td></tr>
+          <tr><td>kernel / compute shader</td><td>kernel</td><td>function that runs on the GPU</td></tr>
+          <tr><td>unified memory</td><td>device memory + PCIe copy</td><td>where data lives</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h2>6 · How is this different from ChatGPT?</h2>
+        <ul class="diff">
+          <li><b>Private.</b> Papers never leave the laptop, so it's safe for unpublished, medical or legal documents.</li>
+          <li><b>Offline &amp; free.</b> No internet, account or API bill.</li>
+          <li><b>Verifiable.</b> Every claim cites paper + page. Click a citation to open that exact page.</li>
+          <li><b>Admits gaps.</b> If the answer isn't in your papers, it says so instead of guessing.</li>
+          <li><b>Scales.</b> Searches every chunk of every paper in milliseconds on the GPU.</li>
+          <li><b>Trade-off:</b> a 3B local model writes less fluently than GPT-4-class models.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
