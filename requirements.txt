@@ -1,0 +1,7 @@
+mlx>=0.32
+numpy
+pypdf
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
