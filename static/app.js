@@ -7,6 +7,8 @@ const fmtN = (n) => n >= 1e6 ? n / 1e6 + "M" : n >= 1000 ? Math.round(n / 1000) 
 
 let STATUS = null;
 let PASSAGES = [];
+let LAST_Q = "";
+const citeUrl = (p) => `/api/cite/${p.id}?q=${encodeURIComponent(LAST_Q)}#page=${p.page}`;
 
 // ---------------- tabs ----------------
 function showTab(id) {
@@ -107,18 +109,30 @@ function renderAnswer(text, withCites) {
   }).join("");
   html = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
   if (withCites) {
-    html = html.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_, nums) => nums.split(/\s*,\s*/).map((n) => {
-      const p = PASSAGES[+n - 1];
-      return p ? `<a class="cite" data-src="${n}" title="${esc(p.doc)}, page ${p.page}">${n}</a>`
-               : `<span class="cite bad" title="No such passage: the model invented this citation">${n}</span>`;
-    }).join(""));
+    // our sources are labelled S1, S2... so a paper's own reference numbers like [46] stay plain text.
+    // handles [S1], [S1, S3], [S1][S2], [S1-S3] and [S1-3]
+    // plain [1]..[k] also count (small models sometimes drop the S); bigger numbers are the paper's own refs
+    html = html.replace(/\[\s*(S?\d+(?:\s*[-–,;]\s*S?\d+)*)\s*\]/gi, (whole, inner) => {
+      if (!/s/i.test(inner) && inner.split(/[^\d]+/).some((x) => +x > PASSAGES.length)) return whole;
+      const nums = [];
+      inner.split(/\s*[,;]\s*/).forEach((part) => {
+        const [a, b] = part.split(/\s*[-–]\s*/).map((x) => parseInt(x.replace(/s/i, ""), 10));
+        if (b && b > a && b - a < 10) for (let n = a; n <= b; n++) nums.push(n);
+        else nums.push(a);
+      });
+      return nums.map((n) => {
+        const p = PASSAGES[n - 1];
+        return p ? `<a class="cite" data-src="${n}" href="${citeUrl(p)}" target="_blank" title="Open ${esc(p.doc)}, page ${p.page}, with this passage highlighted">S${n}</a>`
+                 : `<span class="cite bad" title="No such source: the model invented this citation">S${n}</span>`;
+      }).join("");
+    });
   }
   return html;
 }
 
 $("#ragAnswer").addEventListener("click", (e) => {
   const c = e.target.closest(".cite[data-src]");
-  if (!c) return;
+  if (!c) return;              // the link itself opens the highlighted PDF in a new tab
   const card = $(`#src-${c.dataset.src}`);
   card.scrollIntoView({ behavior: "smooth", block: "center" });
   card.classList.add("flash");
@@ -131,8 +145,8 @@ function renderSources(found) {
   const max = Math.max(...PASSAGES.map((p) => p.score), 0.01);
   $("#sources").innerHTML = PASSAGES.map((p, i) => `
     <div class="src" id="src-${i + 1}">
-      <div class="meta"><span class="num">[${i + 1}]</span>
-        <span class="doc"><a href="/api/pdf/${encodeURIComponent(p.doc)}#page=${p.page}" target="_blank" title="Open at page ${p.page}">${esc(p.doc)} · p.${p.page} ↗</a></span>
+      <div class="meta"><span class="num">S${i + 1}</span>
+        <span class="doc"><a href="${citeUrl(p)}" target="_blank" title="Open page ${p.page} with this passage highlighted">${esc(p.doc)} · p.${p.page} ↗</a></span>
         <span class="score">cos ${p.score.toFixed(3)}</span></div>
       <div class="bar"><i style="width:${Math.max(4, (p.score / max) * 100)}%"></i></div>
       <p>${esc(p.text)}</p>
@@ -178,6 +192,7 @@ $("#askForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const question = $("#question").value.trim();
   if (!question) return;
+  LAST_Q = question;
   const btn = $("#askBtn");
   btn.disabled = true; btn.textContent = "Thinking…";
   const compare = $("#compare").checked;
