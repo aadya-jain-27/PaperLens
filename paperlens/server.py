@@ -6,7 +6,8 @@ Endpoints
   GET    /api/status            papers, chunk counts, models, GPU device
   POST   /api/upload            upload one or more PDFs -> chunk -> embed -> index
   DELETE /api/docs/{name}       remove a paper
-  GET    /api/pdf/{name}        serve a PDF (citations open the exact page)
+  GET    /api/pdf/{name}        serve a PDF
+  GET    /api/cite/{id}         PDF with a cited passage highlighted
   POST   /api/ask               question -> GPU search -> streamed answer
   POST   /api/scale             add N synthetic chunks for the scale test
   POST   /api/benchmark         run the CPU-vs-GPU kernel benchmark
@@ -20,11 +21,12 @@ from pathlib import Path
 
 import mlx.core as mx
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import models
+from .highlight import highlighted_pdf
 from .gpu_search import METHOD_LABELS, run_benchmark
 from .library import PAPERS, Library
 
@@ -51,7 +53,7 @@ class BenchBody(BaseModel):
 
 @app.get("/")
 def home():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/status")
@@ -101,6 +103,20 @@ def get_pdf(name: str):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="application/pdf")
+
+
+@app.get("/api/cite/{chunk_id}")
+def cite(chunk_id: int, q: str = ""):
+    """the cited page with the passage in yellow and the best sentence in orange"""
+    if not 0 <= chunk_id < len(lib.chunks):
+        raise HTTPException(404, "passage not found, ask the question again")
+    ch = lib.chunks[chunk_id]
+    path = PAPERS / ch["doc"]
+    if not path.exists():
+        raise HTTPException(404)
+    pdf, _ = highlighted_pdf(str(path), ch["page"], ch["text"], q)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{ch["doc"]}"'})
 
 
 @app.post("/api/scale")
