@@ -126,7 +126,7 @@ class Library:
             real = len(self.chunks)
             res = self.index.search(q, k + 10, method)
             cpu = self.index.search(q, k + 10, "cpu_numpy")   # same search on CPU, for comparison
-            passages = [dict(self.chunks[i], score=round(float(s), 4))
+            passages = [dict(self.chunks[i], id=int(i), score=round(float(s), 4))
                         for i, s in zip(res.indices, res.scores) if i < real][:k]
         return {"passages": passages, "embed_ms": round(embed_ms, 1),
                 "search_ms": round(res.ms, 3), "cpu_search_ms": round(cpu.ms, 3),
